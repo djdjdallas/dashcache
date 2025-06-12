@@ -35,7 +35,38 @@ export default function EarningsChart({ earnings }) {
 
   if (chartData.length === 0) {
     return (
-      <div className=\"h-64 flex items-center justify-center text-gray-500\">\n        No earnings data to display\n      </div>\n    )\n  }
+      <div className="h-64 flex items-center justify-center text-gray-500">
+        No earnings data to display
+      </div>
+    )
+  }
 
   return (
-    <div className=\"h-64\">\n      <ResponsiveContainer width=\"100%\" height=\"100%\">\n        <LineChart data={chartData}>\n          <CartesianGrid strokeDasharray=\"3 3\" />\n          <XAxis \n            dataKey=\"monthDisplay\" \n            tick={{ fontSize: 12 }}\n          />\n          <YAxis \n            tick={{ fontSize: 12 }}\n            tickFormatter={(value) => `$${value}`}\n          />\n          <Tooltip \n            formatter={(value, name) => [`$${value.toFixed(2)}`, 'Earnings']}\n            labelFormatter={(label) => `Month: ${label}`}\n          />\n          <Line \n            type=\"monotone\" \n            dataKey=\"earnings\" \n            stroke=\"#3B82F6\" \n            strokeWidth={2}\n            dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}\n          />\n        </LineChart>\n      </ResponsiveContainer>\n    </div>\n  )\n}
+    <div className="h-64">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis 
+            dataKey="monthDisplay" 
+            tick={{ fontSize: 12 }}
+          />
+          <YAxis 
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value) => `$${value}`}
+          />
+          <Tooltip 
+            formatter={(value, name) => [`$${value.toFixed(2)}`, 'Earnings']}
+            labelFormatter={(label) => `Month: ${label}`}
+          />
+          <Line 
+            type="monotone" 
+            dataKey="earnings" 
+            stroke="#3B82F6" 
+            strokeWidth={2}
+            dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}

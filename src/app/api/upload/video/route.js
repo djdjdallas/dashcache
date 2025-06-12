@@ -1,27 +1,70 @@
-import { NextRequest, NextResponse } from 'next/server'
-import mux from '@/lib/mux'
+import { NextResponse } from 'next/server'
+import { createUploadUrl } from '@/lib/mux'
 import { supabaseAdmin } from '@/lib/supabase'
-import { anonymizeVideo } from '@/lib/sightengine'
+import { handleApiError, validateDriverId, validateEarningsAmount, DashCacheError, ERROR_TYPES } from '@/lib/errors'
+
+const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 524288000 // 500MB
+const SUPPORTED_FORMATS = (process.env.SUPPORTED_VIDEO_FORMATS || 'mp4,mov,avi,mkv').split(',')
 
 export async function POST(request) {
   try {
-    const formData = await request.formData()
-    const videoFile = formData.get('video')
-    const userId = formData.get('userId')
-    const filename = formData.get('filename')
+    const { userId, filename, fileSize, contentType } = await request.json()
 
-    if (!videoFile || !userId || !filename) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
+    // Validate required fields
+    if (!userId || !filename || !fileSize || !contentType) {
+      throw new DashCacheError(
+        ERROR_TYPES.VALIDATION_ERROR,
+        'Missing required fields: userId, filename, fileSize, contentType',
+        { missingFields: { userId: !userId, filename: !filename, fileSize: !fileSize, contentType: !contentType } },
+        400
+      )
+    }
+
+    // Validate driver ID format
+    validateDriverId(userId)
+
+    // Validate file size
+    if (fileSize > MAX_FILE_SIZE) {
+      throw new DashCacheError(
+        ERROR_TYPES.UPLOAD_FILE_TOO_LARGE,
+        `File size too large. Maximum allowed: ${MAX_FILE_SIZE / 1024 / 1024}MB`,
+        { actualSize: fileSize, maxSize: MAX_FILE_SIZE, filename },
+        413
       )
     }
 
     // Validate file type
-    if (!videoFile.type.startsWith('video/')) {
+    if (!contentType.startsWith('video/')) {
+      throw new DashCacheError(
+        ERROR_TYPES.UPLOAD_UNSUPPORTED_FORMAT,
+        'File must be a video',
+        { actualType: contentType, filename },
+        415
+      )
+    }
+
+    // Check file extension
+    const extension = filename.split('.').pop().toLowerCase()
+    if (!SUPPORTED_FORMATS.includes(extension)) {
+      throw new DashCacheError(
+        ERROR_TYPES.UPLOAD_UNSUPPORTED_FORMAT,
+        `Unsupported format. Supported: ${SUPPORTED_FORMATS.join(', ')}`,
+        { actualExtension: extension, supportedFormats: SUPPORTED_FORMATS, filename },
+        415
+      )
+    }
+
+    // Verify user exists and is a driver
+    const { data: user, error: userError } = await supabaseAdmin
+      .from('profiles')
+      .select('id, user_type')
+      .eq('id', userId)
+      .single()
+
+    if (userError || !user || user.user_type !== 'driver') {
       return NextResponse.json(
-        { error: 'File must be a video' },
-        { status: 400 }
+        { error: 'Invalid user or insufficient permissions' },
+        { status: 403 }
       )
     }
 
@@ -31,8 +74,8 @@ export async function POST(request) {
       .insert([{
         driver_id: userId,
         original_filename: filename,
-        upload_status: 'uploading',
-        file_size_mb: Math.round(videoFile.size / (1024 * 1024) * 100) / 100
+        upload_status: 'pending',
+        file_size_mb: Math.round(fileSize / (1024 * 1024) * 100) / 100
       }])
       .select()
       .single()
@@ -45,77 +88,36 @@ export async function POST(request) {
       )
     }
 
-    // Convert File to buffer for Mux upload
-    const arrayBuffer = await videoFile.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
-
     try {
-      // Create Mux asset
-      const asset = await mux.video.assets.create({
-        input: [{
-          url: `data:${videoFile.type};base64,${buffer.toString('base64')}`
-        }],
-        playback_policy: ['public'],
-        test: process.env.NODE_ENV !== 'production'
-      })
-
-      // Update submission with Mux asset info
+      // Create Mux upload URL
+      const { uploadUrl, uploadId } = await createUploadUrl(process.env.NEXT_PUBLIC_SITE_URL)
+      
+      // Update submission with upload ID - Mux webhooks will handle status progression
       const { error: updateError } = await supabaseAdmin
         .from('video_submissions')
         .update({
-          mux_asset_id: asset.id,
-          mux_playback_id: asset.playback_ids?.[0]?.id,
-          upload_status: 'processing'
+          mux_upload_id: uploadId,
+          upload_status: 'uploading' // Mux webhook will update to 'processing' -> 'ready' -> 'anonymizing' -> 'completed'
         })
         .eq('id', submission.id)
 
       if (updateError) {
         console.error('Error updating submission:', updateError)
-      }
-
-      // Start anonymization process in background
-      if (asset.playback_ids?.[0]?.id) {
-        const videoUrl = `https://stream.mux.com/${asset.playback_ids[0].id}.m3u8`
-        
-        // Note: In production, this should be done via a queue/background job
-        anonymizeVideo(videoUrl)
-          .then(async (anonymizationResult) => {
-            // Update submission with anonymization info
-            await supabaseAdmin
-              .from('video_submissions')
-              .update({
-                is_anonymized: true,
-                sightengine_job_id: anonymizationResult.job_id,
-                upload_status: 'completed'
-              })
-              .eq('id', submission.id)
-              
-            // Extract scenarios (simplified - in production use proper AI)
-            await extractScenarios(submission.id, asset)
-            
-            // Calculate and create driver earnings
-            await calculateEarnings(userId, submission.id, asset.duration || 0)
-          })
-          .catch(async (error) => {
-            console.error('Anonymization failed:', error)
-            await supabaseAdmin
-              .from('video_submissions')
-              .update({
-                upload_status: 'failed',
-                processing_notes: error.message
-              })
-              .eq('id', submission.id)
-          })
+        return NextResponse.json(
+          { error: 'Failed to update submission' },
+          { status: 500 }
+        )
       }
 
       return NextResponse.json({
         success: true,
         submissionId: submission.id,
-        muxAssetId: asset.id
+        uploadUrl: uploadUrl,
+        uploadId: uploadId
       })
 
     } catch (muxError) {
-      console.error('Mux upload failed:', muxError)
+      console.error('Mux upload URL creation failed:', muxError)
       
       // Update submission status to failed
       await supabaseAdmin
@@ -127,69 +129,94 @@ export async function POST(request) {
         .eq('id', submission.id)
 
       return NextResponse.json(
-        { error: 'Video processing failed' },
+        { error: 'Failed to create upload URL' },
         { status: 500 }
       )
     }
 
   } catch (error) {
-    console.error('Upload error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    const { error: errorResponse, status } = handleApiError(error, {
+      endpoint: '/api/upload/video',
+      method: 'POST',
+      userId: request.userId
+    })
+    
+    return NextResponse.json(errorResponse, { status })
   }
 }
 
-async function extractScenarios(submissionId, asset) {
-  // Simplified scenario extraction - in production, use proper AI/ML
-  const scenarios = [
-    {
-      video_submission_id: submissionId,
-      scenario_type: 'general_driving',
-      start_time_seconds: 0,
-      end_time_seconds: asset.duration || 60,
-      confidence_score: 0.8,
-      tags: ['urban', 'daytime'],
-      is_approved: false
+// GET endpoint to check upload status
+export async function GET(request) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const submissionId = searchParams.get('submissionId')
+
+    if (!submissionId) {
+      return NextResponse.json(
+        { error: 'Missing submissionId parameter' },
+        { status: 400 }
+      )
     }
-  ]
 
-  await supabaseAdmin
-    .from('video_scenarios')
-    .insert(scenarios)
-}
+    const { data: submission, error } = await supabaseAdmin
+      .from('video_submissions')
+      .select('*')
+      .eq('id', submissionId)
+      .single()
 
-async function calculateEarnings(driverId, submissionId, duration) {
-  // Calculate earnings: $0.50-$2.00 per minute based on quality/scenarios
-  const minutes = Math.max(1, Math.round(duration / 60))
-  const ratePerMinute = 0.75 // Base rate
-  const amount = minutes * ratePerMinute
+    if (error || !submission) {
+      return NextResponse.json(
+        { error: 'Submission not found' },
+        { status: 404 }
+      )
+    }
 
-  await supabaseAdmin
-    .from('driver_earnings')
-    .insert([{
-      driver_id: driverId,
-      video_submission_id: submissionId,
-      amount: amount,
-      earning_type: 'footage_contribution',
-      payment_status: 'pending'
-    }])
+    // Check if video has been stuck in 'uploading' status for too long
+    // But don't timeout if we've received webhooks (have mux_asset_id)
+    if (submission.upload_status === 'uploading' && !submission.mux_asset_id) {
+      const createdAt = new Date(submission.created_at)
+      const now = new Date()
+      const minutesElapsed = (now - createdAt) / (1000 * 60)
+      
+      // If stuck for more than 5 minutes without any Mux asset, mark as failed
+      if (minutesElapsed > 5) {
+        await supabaseAdmin
+          .from('video_submissions')
+          .update({
+            upload_status: 'failed',
+            processing_notes: 'Upload timed out - no webhook received from Mux'
+          })
+          .eq('id', submission.id)
+        
+        return NextResponse.json({
+          submissionId: submission.id,
+          status: 'failed',
+          muxAssetId: submission.mux_asset_id,
+          playbackId: submission.mux_playback_id,
+          isAnonymized: submission.is_anonymized,
+          processingNotes: 'Upload timed out - no webhook received from Mux',
+          duration: submission.duration_seconds
+        })
+      }
+    }
 
-  // Update driver's total earnings
-  const { data: currentProfile } = await supabaseAdmin
-    .from('profiles')
-    .select('monthly_earnings, total_footage_contributed')
-    .eq('id', driverId)
-    .single()
+    return NextResponse.json({
+      submissionId: submission.id,
+      status: submission.upload_status,
+      muxAssetId: submission.mux_asset_id,
+      playbackId: submission.mux_playback_id,
+      isAnonymized: submission.is_anonymized,
+      processingNotes: submission.processing_notes,
+      duration: submission.duration_seconds
+    })
 
-  if (currentProfile) {
-    await supabaseAdmin
-      .from('profiles')
-      .update({
-        monthly_earnings: (currentProfile.monthly_earnings || 0) + amount,
-        total_footage_contributed: (currentProfile.total_footage_contributed || 0) + minutes
-      })
-      .eq('id', driverId)
+  } catch (error) {
+    const { error: errorResponse, status } = handleApiError(error, {
+      endpoint: '/api/upload/video',
+      method: 'GET',
+      submissionId: request.searchParams?.get('submissionId')
+    })
+    
+    return NextResponse.json(errorResponse, { status })
   }
 }
