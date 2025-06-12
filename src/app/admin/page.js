@@ -15,7 +15,8 @@ import {
   Clock,
   LogOut,
   User,
-  Shield
+  Shield,
+  Play
 } from 'lucide-react'
 
 export default function AdminPanel() {
@@ -109,7 +110,8 @@ export default function AdminPanel() {
 
   const loadPendingVideos = async () => {
     try {
-      const { data, error } = await supabase
+      // First get scenarios that need approval
+      const { data: scenarios, error: scenarioError } = await supabase
         .from('video_scenarios')
         .select(`
           *,
@@ -126,13 +128,48 @@ export default function AdminPanel() {
         .order('created_at', { ascending: false })
         .limit(20)
 
-      if (error) {
-        console.error('Error loading pending videos:', error)
-      } else {
-        setPendingVideos(data || [])
+      if (scenarioError) {
+        console.error('Error loading pending scenarios:', scenarioError)
       }
+
+      // Also get videos that don't have any scenarios yet
+      const { data: videosWithoutScenarios, error: videoError } = await supabase
+        .from('video_submissions')
+        .select(`
+          id,
+          original_filename,
+          upload_status,
+          created_at,
+          profiles (
+            full_name,
+            email
+          )
+        `)
+        .not('id', 'in', 
+          scenarios?.map(s => s.video_submission_id) || []
+        )
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (videoError) {
+        console.error('Error loading videos without scenarios:', videoError)
+      }
+
+      // Combine both types
+      const combined = [
+        ...(scenarios || []),
+        ...(videosWithoutScenarios?.map(video => ({
+          id: `video_${video.id}`,
+          video_submissions: video,
+          scenario_type: 'NO_SCENARIOS',
+          confidence_score: 0,
+          needsScenarios: true
+        })) || [])
+      ]
+
+      setPendingVideos(combined)
     } catch (error) {
-      console.error('Error loading pending videos:', error)
+      console.error('Error loading pending content:', error)
     }
   }
 
@@ -211,6 +248,32 @@ export default function AdminPanel() {
       }
     } catch (error) {
       console.error('Error rejecting scenario:', error)
+    }
+  }
+
+  const generateScenarios = async (videoId) => {
+    try {
+      console.log('Generating scenarios for video:', videoId)
+      
+      const response = await fetch('/api/test/trigger-scenarios', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ submissionId: videoId })
+      })
+
+      const result = await response.json()
+      
+      if (result.success) {
+        console.log('Scenarios generated successfully:', result)
+        await loadPendingVideos()
+        await loadStats()
+      } else {
+        console.error('Failed to generate scenarios:', result.error)
+      }
+    } catch (error) {
+      console.error('Error generating scenarios:', error)
     }
   }
 
@@ -396,43 +459,73 @@ export default function AdminPanel() {
                   <p className="text-gray-500">No pending content to review.</p>
                 ) : (
                   <div className="space-y-4">
-                    {pendingVideos.map((scenario) => (
-                      <div key={scenario.id} className="border border-gray-200 rounded-lg p-4">
+                    {pendingVideos.map((item) => (
+                      <div key={item.id} className="border border-gray-200 rounded-lg p-4">
                         <div className="flex justify-between items-start">
                           <div className="flex-1">
                             <h4 className="font-medium text-gray-900">
-                              {scenario.video_submissions?.original_filename}
+                              {item.video_submissions?.original_filename}
                             </h4>
-                            <p className="text-sm text-gray-600 mt-1">
-                              Scenario: {scenario.scenario_type} | 
-                              Confidence: {(scenario.confidence_score * 100).toFixed(1)}%
-                            </p>
-                            <p className="text-sm text-gray-500">
-                              Driver: {scenario.video_submissions?.profiles?.full_name || 'Unknown'}
-                            </p>
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {scenario.tags && JSON.parse(scenario.tags || '[]').map((tag, i) => (
-                                <span key={i} className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
-                                  {tag}
-                                </span>
-                              ))}
-                            </div>
+                            
+                            {item.needsScenarios ? (
+                              <div>
+                                <p className="text-sm text-amber-600 mt-1">
+                                  ⚠️ No scenarios generated yet | Status: {item.video_submissions?.upload_status}
+                                </p>
+                                <p className="text-sm text-gray-500">
+                                  Driver: {item.video_submissions?.profiles?.full_name || 'Unknown'}
+                                </p>
+                                <p className="text-xs text-gray-400 mt-1">
+                                  Created: {new Date(item.video_submissions?.created_at).toLocaleString()}
+                                </p>
+                              </div>
+                            ) : (
+                              <div>
+                                <p className="text-sm text-gray-600 mt-1">
+                                  Scenario: {item.scenario_type} | 
+                                  Confidence: {(item.confidence_score * 100).toFixed(1)}%
+                                </p>
+                                <p className="text-sm text-gray-500">
+                                  Driver: {item.video_submissions?.profiles?.full_name || 'Unknown'}
+                                </p>
+                                <div className="flex flex-wrap gap-1 mt-2">
+                                  {item.tags && JSON.parse(item.tags || '[]').map((tag, i) => (
+                                    <span key={i} className="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded">
+                                      {tag}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
+                          
                           <div className="flex space-x-2 ml-4">
-                            <button
-                              onClick={() => approveScenario(scenario.id)}
-                              className="flex items-center px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
-                            >
-                              <CheckCircle className="h-4 w-4 mr-1" />
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => rejectScenario(scenario.id)}
-                              className="flex items-center px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
-                            >
-                              <XCircle className="h-4 w-4 mr-1" />
-                              Reject
-                            </button>
+                            {item.needsScenarios ? (
+                              <button
+                                onClick={() => generateScenarios(item.video_submissions.id)}
+                                className="flex items-center px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                              >
+                                <Play className="h-4 w-4 mr-1" />
+                                Generate Scenarios
+                              </button>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => approveScenario(item.id)}
+                                  className="flex items-center px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700"
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-1" />
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => rejectScenario(item.id)}
+                                  className="flex items-center px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700"
+                                >
+                                  <XCircle className="h-4 w-4 mr-1" />
+                                  Reject
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
