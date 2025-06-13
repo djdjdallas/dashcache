@@ -37,8 +37,8 @@ export async function GET(request) {
     // Parse event data for easier viewing
     const parsedLogs = logs.map(log => ({
       ...log,
-      event_data: log.event_data ? JSON.parse(log.event_data) : null,
-      error_details: log.error_details ? JSON.parse(log.error_details) : null
+      event_data: log.event_data, // Already JSONB in database
+      error_details: log.error_details // Already JSONB in database
     }))
 
     // Get event type statistics
@@ -95,9 +95,9 @@ export async function POST(request) {
         service,
         event_type: eventType,
         event_id: eventData?.id || `manual_${Date.now()}`,
-        event_data: JSON.stringify(eventData || {}),
+        event_data: eventData || {},
         error_message: errorMessage,
-        error_details: errorMessage ? JSON.stringify({ manual: true, error: errorMessage }) : null,
+        error_details: errorMessage ? { manual: true, error: errorMessage } : null,
         created_at: new Date().toISOString()
       }])
       .select()

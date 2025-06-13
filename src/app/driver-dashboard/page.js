@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import VideoUpload from '@/components/VideoUpload'
 import EarningsChart from '@/components/EarningsChart'
+import DriverEarnings from '@/components/DriverEarnings'
 import { 
   Video, 
   Upload, 
@@ -280,8 +281,8 @@ export default function DriverDashboard() {
 
             {activeTab === 'earnings' && (
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Earnings History</h3>
-                <div className="mb-6">
+                <div className="grid lg:grid-cols-2 gap-6 mb-6">
+                  <DriverEarnings profile={profile} earnings={earnings} />
                   <EarningsChart earnings={earnings} />
                 </div>
                 {earnings.length === 0 ? (

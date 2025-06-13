@@ -16,8 +16,11 @@ import {
   LogOut,
   User,
   Shield,
-  Play
+  Play,
+  Eye,
+  EyeOff
 } from 'lucide-react'
+import MuxPlayer from '@mux/mux-player-react'
 
 export default function AdminPanel() {
   const [user, setUser] = useState(null)
@@ -28,6 +31,7 @@ export default function AdminPanel() {
   const [pendingVideos, setPendingVideos] = useState([])
   const [users, setUsers] = useState([])
   const [earnings, setEarnings] = useState([])
+  const [showVideoPlayer, setShowVideoPlayer] = useState({}) // Track which videos are expanded
   const router = useRouter()
 
   useEffect(() => {
@@ -133,21 +137,35 @@ export default function AdminPanel() {
       }
 
       // Also get videos that don't have any scenarios yet
-      const { data: videosWithoutScenarios, error: videoError } = await supabase
+      // First, get all video IDs that have scenarios
+      const { data: videosWithScenarios } = await supabase
+        .from('video_scenarios')
+        .select('video_submission_id')
+        .not('video_submission_id', 'is', null)
+        
+      const videoIdsWithScenarios = videosWithScenarios?.map(v => v.video_submission_id) || []
+      
+      // Now get videos that don't have scenarios
+      let query = supabase
         .from('video_submissions')
         .select(`
           id,
           original_filename,
           upload_status,
           created_at,
+          mux_playback_id,
           profiles (
             full_name,
             email
           )
         `)
-        .not('id', 'in', 
-          scenarios?.map(s => s.video_submission_id) || []
-        )
+        
+      // Only apply the filter if there are videos with scenarios
+      if (videoIdsWithScenarios.length > 0) {
+        query = query.not('id', 'in', `(${videoIdsWithScenarios.join(',')})`)
+      }
+      
+      const { data: videosWithoutScenarios, error: videoError } = await query
         .order('created_at', { ascending: false })
         .limit(10)
 
@@ -249,6 +267,13 @@ export default function AdminPanel() {
     } catch (error) {
       console.error('Error rejecting scenario:', error)
     }
+  }
+
+  const toggleVideoPlayer = (videoId) => {
+    setShowVideoPlayer(prev => ({
+      ...prev,
+      [videoId]: !prev[videoId]
+    }))
   }
 
   const generateScenarios = async (videoId) => {
@@ -500,6 +525,21 @@ export default function AdminPanel() {
                           </div>
                           
                           <div className="flex space-x-2 ml-4">
+                            {/* Video Preview Button - Show for all videos with playback ID */}
+                            {(item.video_submissions?.mux_playback_id || item.mux_playback_id) && (
+                              <button
+                                onClick={() => toggleVideoPlayer(item.video_submissions?.id || item.id)}
+                                className="flex items-center px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
+                              >
+                                {showVideoPlayer[item.video_submissions?.id || item.id] ? (
+                                  <EyeOff className="h-4 w-4 mr-1" />
+                                ) : (
+                                  <Eye className="h-4 w-4 mr-1" />
+                                )}
+                                {showVideoPlayer[item.video_submissions?.id || item.id] ? 'Hide' : 'Preview'}
+                              </button>
+                            )}
+
                             {item.needsScenarios ? (
                               <button
                                 onClick={() => generateScenarios(item.video_submissions.id)}
@@ -528,6 +568,42 @@ export default function AdminPanel() {
                             )}
                           </div>
                         </div>
+                        
+                        {/* Video Player - Show when expanded */}
+                        {showVideoPlayer[item.video_submissions?.id || item.id] && (item.video_submissions?.mux_playback_id || item.mux_playback_id) && (
+                          <div className="mt-4 border-t pt-4">
+                            <div className="flex justify-between items-center mb-3">
+                              <h5 className="font-medium text-gray-900">Video Preview</h5>
+                              {!item.needsScenarios && (
+                                <div className="text-sm text-gray-600">
+                                  Scenario: {item.start_time_seconds}s - {item.end_time_seconds}s
+                                </div>
+                              )}
+                            </div>
+                            <div className="bg-black rounded-lg overflow-hidden" style={{ maxWidth: '600px', aspectRatio: '16/9' }}>
+                              <MuxPlayer
+                                playbackId={item.video_submissions?.mux_playback_id || item.mux_playback_id}
+                                metadata={{
+                                  video_title: item.video_submissions?.original_filename || 'Dashcam Video',
+                                  viewer_user_id: 'admin_preview'
+                                }}
+                                style={{ width: '100%', height: '100%' }}
+                                controls
+                                muted
+                                poster="auto"
+                                startTime={!item.needsScenarios ? item.start_time_seconds : undefined}
+                                autoPlay={false}
+                              />
+                            </div>
+                            {!item.needsScenarios && (
+                              <div className="mt-2 text-sm text-gray-600">
+                                <p><strong>Scenario:</strong> {item.scenario_type.replace('_', ' ').toUpperCase()}</p>
+                                <p><strong>Confidence:</strong> {(item.confidence_score * 100).toFixed(1)}%</p>
+                                <p><strong>Duration:</strong> {item.start_time_seconds}s - {item.end_time_seconds}s ({item.end_time_seconds - item.start_time_seconds}s long)</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

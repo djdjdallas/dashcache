@@ -8,7 +8,8 @@ export const anonymizeVideo = async (videoUrl, options = {}) => {
     
     const formData = new FormData()
     formData.append('media', videoUrl)
-    formData.append('workflow', 'wfl_CkEBZpRHPo7E7MtAgaJ16') // Video anonymization workflow
+    // Anonymize faces, license plates, and other PII
+    formData.append('concepts', 'face,license-plate,phone,email,text-embedded')
     formData.append('api_user', process.env.SIGHTENGINE_API_USER)
     formData.append('api_secret', process.env.SIGHTENGINE_API_SECRET)
     
@@ -18,7 +19,7 @@ export const anonymizeVideo = async (videoUrl, options = {}) => {
       console.log('📞 Callback URL set:', options.callbackUrl)
     }
 
-    const response = await fetch('https://api.sightengine.com/1.0/video/workflow.json', {
+    const response = await fetch('https://api.sightengine.com/1.0/video/transform.json', {
       method: 'POST',
       body: formData
     })
@@ -30,16 +31,17 @@ export const anonymizeVideo = async (videoUrl, options = {}) => {
     }
 
     const result = await response.json()
-    console.log('✅ SightEngine anonymization started:', result)
+    console.log('✅ SightEngine anonymization response:', result)
     
     if (result.status === 'failure') {
       throw new Error(`SightEngine processing failed: ${result.error?.message || 'Unknown error'}`)
     }
 
+    // For video/transform.json, the response format may include a job_id
     return {
-      job_id: result.job?.id || result.id,
+      job_id: result.job_id || result.id || 'unknown',
       status: result.status || 'pending',
-      workflow_id: result.workflow?.id
+      message: result.message || 'Anonymization started'
     }
   } catch (error) {
     console.error('💥 Error in SightEngine anonymization:', error)
@@ -219,25 +221,5 @@ export const extractScenarios = (analysisResults) => {
   }
 }
 
-export const calculateEarnings = (videoDurationSeconds, scenarios) => {
-  const minutes = videoDurationSeconds / 60
-  const baseRate = parseFloat(process.env.EARNINGS_PER_MINUTE_MIN) || 0.5
-  const maxRate = parseFloat(process.env.EARNINGS_PER_MINUTE_MAX) || 2.0
-  
-  // Base earnings
-  let earnings = minutes * baseRate
-  
-  // Bonus for scenario-rich content
-  const scenarioTypes = new Set(scenarios.map(s => s.type))
-  const scenarioBonus = scenarioTypes.size * 0.1 // $0.10 per unique scenario type
-  
-  // High confidence scenarios get additional bonus
-  const highConfidenceScenarios = scenarios.filter(s => s.confidence > 0.8)
-  const confidenceBonus = highConfidenceScenarios.length * 0.05 // $0.05 per high-confidence scenario
-  
-  earnings += scenarioBonus + confidenceBonus
-  
-  // Cap at maximum rate
-  const maxEarnings = minutes * maxRate
-  return Math.min(earnings, maxEarnings)
-}
+// Note: calculateEarnings has been moved to @/lib/earningsCalculator 
+// for enhanced tiered earning system with edge case detection

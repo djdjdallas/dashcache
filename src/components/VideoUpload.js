@@ -300,6 +300,17 @@ export default function VideoUpload({ userId, onUploadComplete }) {
         </ul>
       </div>
 
+      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-green-900 mb-2">Expected Earnings</h4>
+        <div className="text-sm text-green-700 space-y-1">
+          <p>• Bronze drivers: $3-6/hour base rate</p>
+          <p>• Silver drivers: $4.80-8/hour (10+ videos)</p>
+          <p>• Gold drivers: $6-10/hour (50+ videos)</p>
+          <p>• Platinum drivers: $7.20-12/hour (100+ videos)</p>
+          <p className="font-semibold mt-2">+ Edge case bounties: $5-50 per rare event!</p>
+        </div>
+      </div>
+
       {/* Dropzone */}
       <div
         {...getRootProps()}

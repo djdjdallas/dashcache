@@ -93,9 +93,23 @@ export async function POST(request) {
       })
     }
     
-    // Use processVideo if available
-    const playbackId = submission.mux_playback_id || 'dummy-playback-id'
+    // Check if we can use processVideo or need fallback
+    const playbackId = submission.mux_playback_id
     const duration = submission.duration_seconds || 60
+    
+    if (!playbackId) {
+      console.log('⚠️ No playback ID available, using fallback scenario generation')
+      return NextResponse.json({
+        success: true,
+        message: 'No playback ID - scenarios should be generated via fallback above',
+        scenariosCreated: 0,
+        submission: {
+          id: submission.id,
+          filename: submission.original_filename,
+          status: submission.upload_status
+        }
+      })
+    }
     
     console.log('🚀 Triggering processVideo...')
     await processVideo(submission, playbackId, duration)
@@ -109,7 +123,7 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       message: 'Process video triggered',
-      scenariosCreated: scenarios.length,
+      scenariosCreated: scenarios?.length || 0,
       submission: {
         id: submission.id,
         filename: submission.original_filename,
