@@ -584,6 +584,9 @@ async function processVideo(submission, playbackId, duration) {
     
     console.log('🎯 Starting video processing for submission:', submission.id)
     
+    // Download and store processed video to Supabase Storage
+    await downloadAndStoreProcessedVideo(submission, playbackId)
+    
     // For now, we'll create synthetic scenarios based on video metadata
     // In production, you'd use a proper AI service for video analysis
     const scenarios = await generateSyntheticScenarios(submission, duration)
@@ -724,6 +727,77 @@ async function processVideo(submission, playbackId, duration) {
         processing_notes: `Processing pipeline failed: ${error.message}`
       })
       .eq('id', submission.id)
+  }
+}
+
+// Download processed video from Mux and store in Supabase Storage
+async function downloadAndStoreProcessedVideo(submission, playbackId) {
+  try {
+    console.log('📥 Downloading processed video from Mux for submission:', submission.id)
+    
+    // Generate Mux video URL - using mp4 format for download
+    const videoUrl = `https://stream.mux.com/${playbackId}.mp4`
+    
+    console.log('🔗 Downloading from URL:', videoUrl)
+    
+    // Download video from Mux
+    const response = await fetch(videoUrl)
+    if (!response.ok) {
+      throw new Error(`Failed to download video: ${response.status} ${response.statusText}`)
+    }
+    
+    const videoBuffer = await response.arrayBuffer()
+    const videoBlob = new Blob([videoBuffer], { type: 'video/mp4' })
+    
+    console.log('📦 Downloaded video size:', videoBuffer.byteLength, 'bytes')
+    
+    // Generate storage path for processed video
+    const fileExt = submission.original_filename.split('.').pop() || 'mp4'
+    const processedFileName = `processed/${submission.driver_id}/${submission.id}.${fileExt}`
+    
+    // Upload to Supabase Storage
+    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+      .from('dashcam-videos')
+      .upload(processedFileName, videoBlob, {
+        contentType: 'video/mp4',
+        upsert: true // Allow overwriting if file exists
+      })
+    
+    if (uploadError) {
+      throw new Error(`Supabase upload failed: ${uploadError.message}`)
+    }
+    
+    console.log('✅ Processed video stored at:', uploadData.path)
+    
+    // Update submission record with processed video path
+    const { error: updateError } = await supabaseAdmin
+      .from('video_submissions')
+      .update({
+        processed_video_path: uploadData.path,
+        processed_video_size_bytes: videoBuffer.byteLength
+      })
+      .eq('id', submission.id)
+    
+    if (updateError) {
+      console.error('❌ Failed to update submission with processed video path:', updateError)
+    } else {
+      console.log('✅ Updated submission record with processed video path')
+    }
+    
+    return uploadData.path
+    
+  } catch (error) {
+    console.error('💥 Error downloading and storing processed video:', error)
+    
+    // Update submission with error note, but don't fail the entire process
+    await supabaseAdmin
+      .from('video_submissions')
+      .update({
+        processing_notes: `Failed to store processed video: ${error.message}`
+      })
+      .eq('id', submission.id)
+    
+    throw error
   }
 }
 

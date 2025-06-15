@@ -120,8 +120,10 @@ export default function AdminPanel() {
         .select(`
           *,
           video_submissions (
+            id,
             original_filename,
             mux_playback_id,
+            duration_seconds,
             profiles (
               full_name,
               email
@@ -134,6 +136,9 @@ export default function AdminPanel() {
 
       if (scenarioError) {
         console.error('Error loading pending scenarios:', scenarioError)
+      } else {
+        console.log('Loaded scenarios:', scenarios?.length || 0, 'scenarios')
+        console.log('Scenarios with playback IDs:', scenarios?.filter(s => s.video_submissions?.mux_playback_id).length || 0)
       }
 
       // Also get videos that don't have any scenarios yet
@@ -526,17 +531,17 @@ export default function AdminPanel() {
                           
                           <div className="flex space-x-2 ml-4">
                             {/* Video Preview Button - Show for all videos with playback ID */}
-                            {(item.video_submissions?.mux_playback_id || item.mux_playback_id) && (
+                            {item.video_submissions?.mux_playback_id && (
                               <button
-                                onClick={() => toggleVideoPlayer(item.video_submissions?.id || item.id)}
+                                onClick={() => toggleVideoPlayer(item.video_submission_id || item.video_submissions?.id)}
                                 className="flex items-center px-3 py-1 text-sm bg-purple-600 text-white rounded hover:bg-purple-700"
                               >
-                                {showVideoPlayer[item.video_submissions?.id || item.id] ? (
+                                {showVideoPlayer[item.video_submission_id || item.video_submissions?.id] ? (
                                   <EyeOff className="h-4 w-4 mr-1" />
                                 ) : (
                                   <Eye className="h-4 w-4 mr-1" />
                                 )}
-                                {showVideoPlayer[item.video_submissions?.id || item.id] ? 'Hide' : 'Preview'}
+                                {showVideoPlayer[item.video_submission_id || item.video_submissions?.id] ? 'Hide' : 'Preview'}
                               </button>
                             )}
 
@@ -570,7 +575,7 @@ export default function AdminPanel() {
                         </div>
                         
                         {/* Video Player - Show when expanded */}
-                        {showVideoPlayer[item.video_submissions?.id || item.id] && (item.video_submissions?.mux_playback_id || item.mux_playback_id) && (
+                        {showVideoPlayer[item.video_submission_id || item.video_submissions?.id] && item.video_submissions?.mux_playback_id && (
                           <div className="mt-4 border-t pt-4">
                             <div className="flex justify-between items-center mb-3">
                               <h5 className="font-medium text-gray-900">Video Preview</h5>
@@ -582,7 +587,7 @@ export default function AdminPanel() {
                             </div>
                             <div className="bg-black rounded-lg overflow-hidden" style={{ maxWidth: '600px', aspectRatio: '16/9' }}>
                               <MuxPlayer
-                                playbackId={item.video_submissions?.mux_playback_id || item.mux_playback_id}
+                                playbackId={item.video_submissions?.mux_playback_id}
                                 metadata={{
                                   video_title: item.video_submissions?.original_filename || 'Dashcam Video',
                                   viewer_user_id: 'admin_preview'
@@ -599,7 +604,7 @@ export default function AdminPanel() {
                               <div className="mt-2 text-sm text-gray-600">
                                 <p><strong>Scenario:</strong> {item.scenario_type.replace('_', ' ').toUpperCase()}</p>
                                 <p><strong>Confidence:</strong> {(item.confidence_score * 100).toFixed(1)}%</p>
-                                <p><strong>Duration:</strong> {item.start_time_seconds}s - {item.end_time_seconds}s ({item.end_time_seconds - item.start_time_seconds}s long)</p>
+                                <p><strong>Duration:</strong> {item.start_time_seconds}s - {item.end_time_seconds}s ({(item.end_time_seconds - item.start_time_seconds).toFixed(1)}s long)</p>
                               </div>
                             )}
                           </div>

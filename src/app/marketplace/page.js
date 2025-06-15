@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { getCurrentUser, signOut } from '@/lib/auth'
 import { Filter, Play, ShoppingCart, Download, MapPin, Cloud, Clock, LogOut, User } from 'lucide-react'
@@ -35,16 +36,14 @@ export default function Marketplace() {
   const loadUserData = async () => {
     try {
       const userData = await getCurrentUser()
-      if (!userData) {
-        router.push('/auth')
-        return
+      if (userData) {
+        setUser(userData.user)
+        setProfile(userData.profile)
       }
-      
-      setUser(userData.user)
-      setProfile(userData.profile)
+      // Don't redirect if no user - allow public browsing
     } catch (error) {
       console.error('Error loading user data:', error)
-      router.push('/auth')
+      // Don't redirect on error - allow public browsing
     }
   }
 
@@ -102,6 +101,10 @@ export default function Marketplace() {
   }
 
   const addToCart = (packageData) => {
+    if (!user) {
+      router.push('/auth')
+      return
+    }
     if (!cart.find(item => item.id === packageData.id)) {
       setCart([...cart, packageData])
     }
@@ -116,6 +119,10 @@ export default function Marketplace() {
   }
 
   const handleCheckout = () => {
+    if (!user) {
+      router.push('/auth')
+      return
+    }
     if (cart.length === 0) return
     
     // Store cart in localStorage for checkout page
@@ -148,7 +155,255 @@ export default function Marketplace() {
 
   if (loading) {
     return (
-      <div className=\"min-h-screen flex items-center justify-center\">\n        <div className=\"text-lg\">Loading marketplace...</div>\n      </div>\n    )\n  }
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Loading marketplace...</div>
+      </div>
+    )
+  }
 
   return (
-    <div className=\"min-h-screen bg-gray-50\">\n      {/* Header */}\n      <header className=\"bg-white shadow-sm border-b\">\n        <div className=\"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8\">\n          <div className=\"flex justify-between items-center py-4\">\n            <div className=\"flex items-center\">\n              <ShoppingCart className=\"h-8 w-8 text-purple-600 mr-2\" />\n              <span className=\"text-xl font-bold text-gray-900\">AI Training Data Marketplace</span>\n            </div>\n            <div className=\"flex items-center space-x-4\">\n              {cart.length > 0 && (\n                <div className=\"flex items-center space-x-2\">\n                  <span className=\"text-sm text-gray-600\">\n                    Cart: {cart.length} items ({formatPrice(getTotalPrice())})\n                  </span>\n                  <button\n                    onClick={handleCheckout}\n                    className=\"px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700\"\n                  >\n                    Checkout\n                  </button>\n                </div>\n              )}\n              <div className=\"flex items-center text-sm text-gray-600\">\n                <User className=\"h-4 w-4 mr-1\" />\n                {profile?.company_name || profile?.full_name || user?.email}\n              </div>\n              <button\n                onClick={handleSignOut}\n                className=\"flex items-center text-sm text-gray-600 hover:text-gray-900\"\n              >\n                <LogOut className=\"h-4 w-4 mr-1\" />\n                Sign Out\n              </button>\n            </div>\n          </div>\n        </div>\n      </header>\n\n      <div className=\"max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8\">\n        {/* Filters */}\n        <div className=\"bg-white rounded-lg shadow mb-8\">\n          <div className=\"px-6 py-4 border-b border-gray-200\">\n            <button\n              onClick={() => setShowFilters(!showFilters)}\n              className=\"flex items-center text-lg font-medium text-gray-900\"\n            >\n              <Filter className=\"h-5 w-5 mr-2\" />\n              Filters\n            </button>\n          </div>\n          \n          {showFilters && (\n            <div className=\"px-6 py-4\">\n              <div className=\"grid grid-cols-1 md:grid-cols-5 gap-4\">\n                <div>\n                  <label className=\"block text-sm font-medium text-gray-700 mb-1\">\n                    Scenario Type\n                  </label>\n                  <select\n                    value={filters.scenario}\n                    onChange={(e) => setFilters({ ...filters, scenario: e.target.value })}\n                    className=\"w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500\"\n                  >\n                    <option value=\"\">All Scenarios</option>\n                    <option value=\"intersection_turn\">Intersection Turns</option>\n                    <option value=\"pedestrian_crossing\">Pedestrian Crossings</option>\n                    <option value=\"parking\">Parking Maneuvers</option>\n                    <option value=\"highway_merging\">Highway Merging</option>\n                    <option value=\"weather_driving\">Weather Conditions</option>\n                  </select>\n                </div>\n                \n                <div>\n                  <label className=\"block text-sm font-medium text-gray-700 mb-1\">\n                    Location\n                  </label>\n                  <input\n                    type=\"text\"\n                    placeholder=\"City, State\"\n                    value={filters.location}\n                    onChange={(e) => setFilters({ ...filters, location: e.target.value })}\n                    className=\"w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500\"\n                  />\n                </div>\n                \n                <div>\n                  <label className=\"block text-sm font-medium text-gray-700 mb-1\">\n                    Weather\n                  </label>\n                  <select\n                    value={filters.weather}\n                    onChange={(e) => setFilters({ ...filters, weather: e.target.value })}\n                    className=\"w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500\"\n                  >\n                    <option value=\"\">All Weather</option>\n                    <option value=\"clear\">Clear</option>\n                    <option value=\"rainy\">Rainy</option>\n                    <option value=\"snowy\">Snowy</option>\n                    <option value=\"foggy\">Foggy</option>\n                  </select>\n                </div>\n                \n                <div>\n                  <label className=\"block text-sm font-medium text-gray-700 mb-1\">\n                    Min Hours\n                  </label>\n                  <input\n                    type=\"number\"\n                    placeholder=\"0\"\n                    value={filters.minHours}\n                    onChange={(e) => setFilters({ ...filters, minHours: e.target.value })}\n                    className=\"w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500\"\n                  />\n                </div>\n                \n                <div>\n                  <label className=\"block text-sm font-medium text-gray-700 mb-1\">\n                    Max Price\n                  </label>\n                  <input\n                    type=\"number\"\n                    placeholder=\"1000\"\n                    value={filters.maxPrice}\n                    onChange={(e) => setFilters({ ...filters, maxPrice: e.target.value })}\n                    className=\"w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500\"\n                  />\n                </div>\n              </div>\n            </div>\n          )}\n        </div>\n\n        {/* Packages Grid */}\n        {filteredPackages.length === 0 ? (\n          <div className=\"text-center py-12\">\n            <ShoppingCart className=\"h-12 w-12 text-gray-400 mx-auto mb-4\" />\n            <p className=\"text-gray-500\">No datasets match your filters. Try adjusting your criteria.</p>\n          </div>\n        ) : (\n          <div className=\"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6\">\n            {filteredPackages.map((pkg) => (\n              <div key={pkg.id} className=\"bg-white rounded-lg shadow hover:shadow-lg transition-shadow\">\n                <div className=\"p-6\">\n                  <div className=\"flex items-start justify-between mb-4\">\n                    <h3 className=\"text-lg font-semibold text-gray-900\">{pkg.title}</h3>\n                    <div className=\"text-right\">\n                      <div className=\"text-sm text-gray-500\">{formatPrice(pkg.price_per_hour)}/hour</div>\n                      <div className=\"text-xl font-bold text-purple-600\">{formatPrice(pkg.total_price)}</div>\n                    </div>\n                  </div>\n                  \n                  <p className=\"text-gray-600 text-sm mb-4\">{pkg.description}</p>\n                  \n                  <div className=\"space-y-2 mb-4\">\n                    <div className=\"flex items-center text-sm text-gray-600\">\n                      <Clock className=\"h-4 w-4 mr-2\" />\n                      {pkg.total_duration_hours} hours ({pkg.total_clips} clips)\n                    </div>\n                    \n                    {pkg.geographic_coverage && (\n                      <div className=\"flex items-center text-sm text-gray-600\">\n                        <MapPin className=\"h-4 w-4 mr-2\" />\n                        {Array.isArray(pkg.geographic_coverage) \n                          ? pkg.geographic_coverage.join(', ') \n                          : pkg.geographic_coverage}\n                      </div>\n                    )}\n                    \n                    {pkg.weather_conditions && (\n                      <div className=\"flex items-center text-sm text-gray-600\">\n                        <Cloud className=\"h-4 w-4 mr-2\" />\n                        {Array.isArray(pkg.weather_conditions)\n                          ? pkg.weather_conditions.join(', ')\n                          : pkg.weather_conditions}\n                      </div>\n                    )}\n                  </div>\n                  \n                  {/* Scenario Types */}\n                  <div className=\"mb-4\">\n                    <div className=\"flex flex-wrap gap-2\">\n                      {pkg.scenario_types?.map((scenario, index) => (\n                        <span\n                          key={index}\n                          className=\"inline-flex items-center px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full\"\n                        >\n                          <span className=\"mr-1\">{getScenarioIcon(scenario)}</span>\n                          {scenario.replace('_', ' ')}\n                        </span>\n                      ))}\n                    </div>\n                  </div>\n                  \n                  <div className=\"flex space-x-2\">\n                    <button\n                      className=\"flex-1 flex items-center justify-center px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg\"\n                    >\n                      <Play className=\"h-4 w-4 mr-2\" />\n                      Preview\n                    </button>\n                    \n                    {cart.find(item => item.id === pkg.id) ? (\n                      <button\n                        onClick={() => removeFromCart(pkg.id)}\n                        className=\"flex-1 px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg\"\n                      >\n                        Remove\n                      </button>\n                    ) : (\n                      <button\n                        onClick={() => addToCart(pkg)}\n                        className=\"flex-1 px-4 py-2 bg-purple-600 text-white hover:bg-purple-700 rounded-lg\"\n                      >\n                        Add to Cart\n                      </button>\n                    )}\n                  </div>\n                </div>\n              </div>\n            ))}\n          </div>\n        )}\n      </div>\n    </div>\n  )\n}
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center">
+              <ShoppingCart className="h-8 w-8 text-purple-600 mr-2" />
+              <span className="text-xl font-bold text-gray-900">AI Training Data Marketplace</span>
+            </div>
+            <div className="flex items-center space-x-4">
+              {user && cart.length > 0 && (
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm text-gray-600">
+                    Cart: {cart.length} items ({formatPrice(getTotalPrice())})
+                  </span>
+                  <button
+                    onClick={handleCheckout}
+                    className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700"
+                  >
+                    Checkout
+                  </button>
+                </div>
+              )}
+              
+              {user ? (
+                <>
+                  <div className="flex items-center text-sm text-gray-600">
+                    <User className="h-4 w-4 mr-1" />
+                    {profile?.company_name || profile?.full_name || user?.email}
+                  </div>
+                  <button
+                    onClick={handleSignOut}
+                    className="flex items-center text-sm text-gray-600 hover:text-gray-900"
+                  >
+                    <LogOut className="h-4 w-4 mr-1" />
+                    Sign Out
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center space-x-2">
+                  <Link href="/auth">
+                    <button className="px-4 py-2 text-purple-600 text-sm font-medium hover:text-purple-700">
+                      Sign In
+                    </button>
+                  </Link>
+                  <Link href="/auth">
+                    <button className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700">
+                      Get Started
+                    </button>
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Filters */}
+        <div className="bg-white rounded-lg shadow mb-8">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center text-lg font-medium text-gray-900"
+            >
+              <Filter className="h-5 w-5 mr-2" />
+              Filters
+            </button>
+          </div>
+          
+          {showFilters && (
+            <div className="px-6 py-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Scenario Type
+                  </label>
+                  <select
+                    value={filters.scenario}
+                    onChange={(e) => setFilters({ ...filters, scenario: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">All Scenarios</option>
+                    <option value="intersection_turn">Intersection Turns</option>
+                    <option value="pedestrian_crossing">Pedestrian Crossings</option>
+                    <option value="parking">Parking Maneuvers</option>
+                    <option value="highway_merging">Highway Merging</option>
+                    <option value="weather_driving">Weather Conditions</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Location
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="City, State"
+                    value={filters.location}
+                    onChange={(e) => setFilters({ ...filters, location: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Weather
+                  </label>
+                  <select
+                    value={filters.weather}
+                    onChange={(e) => setFilters({ ...filters, weather: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">All Weather</option>
+                    <option value="clear">Clear</option>
+                    <option value="rainy">Rainy</option>
+                    <option value="snowy">Snowy</option>
+                    <option value="foggy">Foggy</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Min Hours
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={filters.minHours}
+                    onChange={(e) => setFilters({ ...filters, minHours: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Max Price
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="1000"
+                    value={filters.maxPrice}
+                    onChange={(e) => setFilters({ ...filters, maxPrice: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Packages Grid */}
+        {filteredPackages.length === 0 ? (
+          <div className="text-center py-12">
+            <ShoppingCart className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-500">No datasets match your filters. Try adjusting your criteria.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredPackages.map((pkg) => (
+              <div key={pkg.id} className="bg-white rounded-lg shadow hover:shadow-lg transition-shadow">
+                <div className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">{pkg.title}</h3>
+                    <div className="text-right">
+                      <div className="text-sm text-gray-500">{formatPrice(pkg.price_per_hour)}/hour</div>
+                      <div className="text-xl font-bold text-purple-600">{formatPrice(pkg.total_price)}</div>
+                    </div>
+                  </div>
+                  
+                  <p className="text-gray-600 text-sm mb-4">{pkg.description}</p>
+                  
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Clock className="h-4 w-4 mr-2" />
+                      {pkg.total_duration_hours} hours ({pkg.total_clips} clips)
+                    </div>
+                    
+                    {pkg.geographic_coverage && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <MapPin className="h-4 w-4 mr-2" />
+                        {Array.isArray(pkg.geographic_coverage) 
+                          ? pkg.geographic_coverage.join(', ') 
+                          : pkg.geographic_coverage}
+                      </div>
+                    )}
+                    
+                    {pkg.weather_conditions && (
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Cloud className="h-4 w-4 mr-2" />
+                        {Array.isArray(pkg.weather_conditions)
+                          ? pkg.weather_conditions.join(', ')
+                          : pkg.weather_conditions}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Scenario Types */}
+                  <div className="mb-4">
+                    <div className="flex flex-wrap gap-2">
+                      {pkg.scenario_types?.map((scenario, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center px-2 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full"
+                        >
+                          <span className="mr-1">{getScenarioIcon(scenario)}</span>
+                          {scenario.replace('_', ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  <div className="flex space-x-2">
+                    <button
+                      className="flex-1 flex items-center justify-center px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg"
+                    >
+                      <Play className="h-4 w-4 mr-2" />
+                      Preview
+                    </button>
+                    
+                    {user && cart.find(item => item.id === pkg.id) ? (
+                      <button
+                        onClick={() => removeFromCart(pkg.id)}
+                        className="flex-1 px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg"
+                      >
+                        Remove
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => addToCart(pkg)}
+                        className="flex-1 px-4 py-2 bg-purple-600 text-white hover:bg-purple-700 rounded-lg"
+                      >
+                        {user ? 'Add to Cart' : 'Sign In to Purchase'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

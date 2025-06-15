@@ -8,7 +8,7 @@ const SUPPORTED_FORMATS = (process.env.SUPPORTED_VIDEO_FORMATS || 'mp4,mov,avi,m
 
 export async function POST(request) {
   try {
-    const { userId, filename, fileSize, contentType } = await request.json()
+    const { userId, filename, fileSize, contentType, supabasePath } = await request.json()
 
     // Validate required fields
     if (!userId || !filename || !fileSize || !contentType) {
@@ -75,7 +75,10 @@ export async function POST(request) {
         driver_id: userId,
         original_filename: filename,
         upload_status: 'pending',
-        file_size_mb: Math.round(fileSize / (1024 * 1024) * 100) / 100
+        file_size_mb: Math.round(fileSize / (1024 * 1024) * 100) / 100,
+        raw_video_path: supabasePath,
+        raw_video_size_bytes: fileSize,
+        supabase_bucket: 'dashcam-videos'
       }])
       .select()
       .single()
