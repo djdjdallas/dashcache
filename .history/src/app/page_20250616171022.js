@@ -390,7 +390,7 @@ export default function Home() {
                         Highway Merging: 300 hours • $180/hour
                       </p>
                     </div>
-                    <Link href="/marketplace">
+                    <Link href="/auth">
                       <Button className="bg-purple-600 hover:bg-purple-700">
                         Request Data Access
                         <ChevronRight className="ml-2 h-4 w-4" />

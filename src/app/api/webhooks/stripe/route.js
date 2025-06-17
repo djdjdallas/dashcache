@@ -1,2 +1,182 @@
 import { NextResponse } from 'next/server'
-import { stripe } from '@/lib/stripe'\nimport { supabaseAdmin } from '@/lib/supabase'\nimport { headers } from 'next/headers'\n\nconst endpointSecret = process.env.STRIPE_WEBHOOK_SECRET\n\nexport async function POST(request) {\n  const body = await request.text()\n  const sig = headers().get('stripe-signature')\n\n  let event\n\n  try {\n    event = stripe.webhooks.constructEvent(body, sig, endpointSecret)\n  } catch (err) {\n    console.error('Webhook signature verification failed:', err.message)\n    return NextResponse.json(\n      { error: 'Webhook signature verification failed' },\n      { status: 400 }\n    )\n  }\n\n  try {\n    switch (event.type) {\n      case 'checkout.session.completed':\n        await handleCheckoutCompleted(event.data.object)\n        break\n        \n      case 'payment_intent.succeeded':\n        await handlePaymentSucceeded(event.data.object)\n        break\n        \n      case 'payment_intent.payment_failed':\n        await handlePaymentFailed(event.data.object)\n        break\n        \n      default:\n        console.log(`Unhandled event type: ${event.type}`)\n    }\n\n    return NextResponse.json({ received: true })\n    \n  } catch (error) {\n    console.error('Webhook processing error:', error)\n    return NextResponse.json(\n      { error: 'Webhook processing failed' },\n      { status: 500 }\n    )\n  }\n}\n\nasync function handleCheckoutCompleted(session) {\n  const buyerId = session.metadata.buyer_id\n  const paymentIntentId = session.payment_intent\n\n  // Update purchases to completed status\n  const { error: updateError } = await supabaseAdmin\n    .from('purchases')\n    .update({\n      payment_status: 'completed',\n      stripe_payment_intent_id: paymentIntentId\n    })\n    .eq('buyer_id', buyerId)\n    .eq('payment_status', 'pending')\n\n  if (updateError) {\n    console.error('Error updating purchases:', updateError)\n    return\n  }\n\n  // Get completed purchases to process driver payouts\n  const { data: purchases, error: fetchError } = await supabaseAdmin\n    .from('purchases')\n    .select(`\n      *,\n      data_packages (\n        package_scenarios (\n          video_scenarios (\n            video_submissions (\n              driver_id\n            )\n          )\n        )\n      )\n    `)\n    .eq('stripe_payment_intent_id', paymentIntentId)\n\n  if (fetchError || !purchases) {\n    console.error('Error fetching purchases:', fetchError)\n    return\n  }\n\n  // Process driver payouts (30% of sale)\n  for (const purchase of purchases) {\n    await processDriverPayouts(purchase)\n  }\n\n  // Generate download links\n  await generateDownloadLinks(purchases)\n}\n\nasync function handlePaymentSucceeded(paymentIntent) {\n  // Update payment status to completed\n  const { error } = await supabaseAdmin\n    .from('purchases')\n    .update({ payment_status: 'completed' })\n    .eq('stripe_payment_intent_id', paymentIntent.id)\n\n  if (error) {\n    console.error('Error updating payment status:', error)\n  }\n}\n\nasync function handlePaymentFailed(paymentIntent) {\n  // Update payment status to failed\n  const { error } = await supabaseAdmin\n    .from('purchases')\n    .update({ payment_status: 'failed' })\n    .eq('stripe_payment_intent_id', paymentIntent.id)\n\n  if (error) {\n    console.error('Error updating payment status:', error)\n  }\n}\n\nasync function processDriverPayouts(purchase) {\n  // Calculate driver share (30% of purchase amount)\n  const driverShare = purchase.amount_paid * 0.30\n  \n  // Get unique drivers from the package scenarios\n  const driverIds = new Set()\n  \n  purchase.data_packages?.package_scenarios?.forEach(ps => {\n    ps.video_scenarios?.video_submissions?.forEach(vs => {\n      if (vs.driver_id) {\n        driverIds.add(vs.driver_id)\n      }\n    })\n  })\n  \n  if (driverIds.size === 0) return\n  \n  // Split the driver share among all contributing drivers\n  const payoutPerDriver = driverShare / driverIds.size\n  \n  // Create driver earnings records\n  const earnings = Array.from(driverIds).map(driverId => ({\n    driver_id: driverId,\n    amount: payoutPerDriver,\n    earning_type: 'footage_contribution',\n    payment_status: 'pending' // Will be paid out in batches\n  }))\n  \n  const { error } = await supabaseAdmin\n    .from('driver_earnings')\n    .insert(earnings)\n    \n  if (error) {\n    console.error('Error creating driver earnings:', error)\n  }\n}\n\nasync function generateDownloadLinks(purchases) {\n  // In production, generate secure download URLs for the datasets\n  // For now, we'll just mark them as available\n  \n  const downloadExpiry = new Date()\n  downloadExpiry.setDate(downloadExpiry.getDate() + 30) // 30 day access\n  \n  const { error } = await supabaseAdmin\n    .from('purchases')\n    .update({\n      download_link: 'https://downloads.dashcache.com/dataset', // Placeholder\n      download_expires_at: downloadExpiry.toISOString()\n    })\n    .in('id', purchases.map(p => p.id))\n    \n  if (error) {\n    console.error('Error generating download links:', error)\n  }\n}
+import { stripe } from '@/lib/stripe'
+import { supabaseAdmin } from '@/lib/supabase'
+import { headers } from 'next/headers'
+
+const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET
+
+export async function POST(request) {
+  const body = await request.text()
+  const sig = headers().get('stripe-signature')
+
+  let event
+
+  try {
+    event = stripe.webhooks.constructEvent(body, sig, endpointSecret)
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message)
+    return NextResponse.json(
+      { error: 'Webhook signature verification failed' },
+      { status: 400 }
+    )
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed':
+        await handleCheckoutCompleted(event.data.object)
+        break
+        
+      case 'payment_intent.succeeded':
+        await handlePaymentSucceeded(event.data.object)
+        break
+        
+      case 'payment_intent.payment_failed':
+        await handlePaymentFailed(event.data.object)
+        break
+        
+      default:
+        console.log(`Unhandled event type: ${event.type}`)
+    }
+
+    return NextResponse.json({ received: true })
+    
+  } catch (error) {
+    console.error('Webhook processing error:', error)
+    return NextResponse.json(
+      { error: 'Webhook processing failed' },
+      { status: 500 }
+    )
+  }
+}
+
+async function handleCheckoutCompleted(session) {
+  const buyerId = session.metadata.buyer_id
+  const paymentIntentId = session.payment_intent
+
+  // Update purchases to completed status
+  const { error: updateError } = await supabaseAdmin
+    .from('purchases')
+    .update({
+      payment_status: 'completed',
+      stripe_payment_intent_id: paymentIntentId
+    })
+    .eq('buyer_id', buyerId)
+    .eq('payment_status', 'pending')
+
+  if (updateError) {
+    console.error('Error updating purchases:', updateError)
+    return
+  }
+
+  // Get completed purchases to process driver payouts
+  const { data: purchases, error: fetchError } = await supabaseAdmin
+    .from('purchases')
+    .select(`
+      *,
+      data_packages (
+        package_scenarios (
+          video_scenarios (
+            video_submissions (
+              driver_id
+            )
+          )
+        )
+      )
+    `)
+    .eq('stripe_payment_intent_id', paymentIntentId)
+
+  if (fetchError || !purchases) {
+    console.error('Error fetching purchases:', fetchError)
+    return
+  }
+
+  // Process driver payouts (30% of sale)
+  for (const purchase of purchases) {
+    await processDriverPayouts(purchase)
+  }
+
+  // Generate download links
+  await generateDownloadLinks(purchases)
+}
+
+async function handlePaymentSucceeded(paymentIntent) {
+  // Update payment status to completed
+  const { error } = await supabaseAdmin
+    .from('purchases')
+    .update({ payment_status: 'completed' })
+    .eq('stripe_payment_intent_id', paymentIntent.id)
+
+  if (error) {
+    console.error('Error updating payment status:', error)
+  }
+}
+
+async function handlePaymentFailed(paymentIntent) {
+  // Update payment status to failed
+  const { error } = await supabaseAdmin
+    .from('purchases')
+    .update({ payment_status: 'failed' })
+    .eq('stripe_payment_intent_id', paymentIntent.id)
+
+  if (error) {
+    console.error('Error updating payment status:', error)
+  }
+}
+
+async function processDriverPayouts(purchase) {
+  // Calculate driver share (30% of purchase amount)
+  const driverShare = purchase.amount_paid * 0.30
+  
+  // Get unique drivers from the package scenarios
+  const driverIds = new Set()
+  
+  purchase.data_packages?.package_scenarios?.forEach(ps => {
+    ps.video_scenarios?.video_submissions?.forEach(vs => {
+      if (vs.driver_id) {
+        driverIds.add(vs.driver_id)
+      }
+    })
+  })
+  
+  if (driverIds.size === 0) return
+  
+  // Split the driver share among all contributing drivers
+  const payoutPerDriver = driverShare / driverIds.size
+  
+  // Create driver earnings records
+  const earnings = Array.from(driverIds).map(driverId => ({
+    driver_id: driverId,
+    amount: payoutPerDriver,
+    earning_type: 'footage_contribution',
+    payment_status: 'pending'
+  }))
+  
+  const { error } = await supabaseAdmin
+    .from('driver_earnings')
+    .insert(earnings)
+    
+  if (error) {
+    console.error('Error creating driver earnings:', error)
+  }
+}
+
+async function generateDownloadLinks(purchases) {
+  // In production, generate secure download URLs for the datasets
+  // For now, we'll just mark them as available
+  
+  const downloadExpiry = new Date()
+  downloadExpiry.setDate(downloadExpiry.getDate() + 30) // 30 day access
+  
+  const { error } = await supabaseAdmin
+    .from('purchases')
+    .update({
+      download_link: 'https://downloads.dashcache.com/dataset', // Placeholder
+      download_expires_at: downloadExpiry.toISOString()
+    })
+    .in('id', purchases.map(p => p.id))
+    
+  if (error) {
+    console.error('Error generating download links:', error)
+  }
+}

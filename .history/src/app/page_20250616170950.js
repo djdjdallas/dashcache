@@ -65,7 +65,7 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-                <Link href="/auth">
+                <Link href="/marketplace">
                   <Button
                     size="lg"
                     className="bg-blue-600 hover:bg-blue-700 text-lg px-8 py-4"
@@ -75,7 +75,7 @@ export default function Home() {
                     <ChevronRight className="ml-2 h-4 w-4" />
                   </Button>
                 </Link>
-                <Link href="/marketplace">
+                <Link href="/auth">
                   <Button
                     size="lg"
                     variant="outline"
@@ -390,7 +390,7 @@ export default function Home() {
                         Highway Merging: 300 hours • $180/hour
                       </p>
                     </div>
-                    <Link href="/marketplace">
+                    <Link href="/auth">
                       <Button className="bg-purple-600 hover:bg-purple-700">
                         Request Data Access
                         <ChevronRight className="ml-2 h-4 w-4" />
