@@ -45,4 +45,6 @@ credentials/
 *.json
 .env.local
 # public assets
-/public/assets/
+/public/assets/public/assets/*.mp4
+public/assets/*.mov
+public/assets/*.avi
